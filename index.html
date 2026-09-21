@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1020">
+<title>여수 남해 바람</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<style>
+  :root{
+    --bg:#0b1020; --panel:#111a2e; --line:#1f2b45; --text:#e8edf7; --muted:#8a97b3;
+    --wind:#5ec8ff; --gust:#ffd166; --wave:#c792ff; --now:#ff5a5f;
+    --good:rgba(46,204,113,.16); --ok:rgba(241,196,15,.16); --caution:rgba(230,126,34,.18); --bad:rgba(231,76,60,.22);
+    --night:rgba(0,0,0,.28);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:Pretendard,"Noto Sans KR","Malgun Gothic",system-ui,sans-serif;font-weight:600;-webkit-font-smoothing:antialiased}
+  header{position:sticky;top:0;z-index:5;background:linear-gradient(var(--bg) 70%,transparent);padding:14px 16px 8px}
+  h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-.02em}
+  h1 small{font-size:12px;color:var(--muted);font-weight:600;margin-left:8px}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-top:6px;font-size:12px;color:var(--muted)}
+  .meta b{color:var(--text)}
+  .legend{display:flex;gap:14px;font-size:12px;color:var(--muted)}
+  .legend i{display:inline-block;width:18px;height:3px;vertical-align:middle;margin-right:5px;border-radius:2px}
+  .legend .g{border-top:2px dashed var(--gust);height:0;background:none}
+  .zoom{margin-left:auto;display:flex;gap:4px}
+  .zoom button{background:var(--panel);color:var(--muted);border:1px solid var(--line);padding:4px 9px;font:inherit;font-size:12px;cursor:pointer}
+  .zoom button.on{color:var(--text);border-color:var(--wind)}
+  .loc{margin-top:6px}
+  .loc .bar{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;padding:10px 16px 4px;border-top:1px solid var(--line)}
+  .loc .bar h2{margin:0;font-size:18px;font-weight:800;letter-spacing:-.02em}
+  .loc .bar h2 small{font-size:11px;color:var(--muted);font-weight:600;margin-left:6px}
+  .loc .bar span{font-size:12px;color:var(--muted)}
+  .loc .bar b{color:var(--text)}
+  .wrap{position:relative;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+  canvas{display:block}
+  .hint{padding:8px 16px 24px;font-size:12px;color:var(--muted);line-height:1.6}
+  .hint b{color:var(--text)}
+  .tip{position:absolute;pointer-events:none;background:#000c;border:1px solid var(--line);padding:8px 10px;font-size:12px;line-height:1.5;white-space:nowrap;display:none;z-index:6}
+  .tip b{font-size:13px}
+  .err{padding:24px 16px;color:#ffb4b4}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">여수 남해 바람 <small>거문도 · 금오도</small></h1>
+  <div class="meta">
+    <span>갱신 <b id="updated">…</b></span>
+    <span>물때 <b id="nowtide">…</b></span>
+    <div class="legend">
+      <span><i style="background:var(--wind)"></i>풍속</span>
+      <span><i class="g"></i>돌풍</span>
+      <span><i style="background:var(--wave)"></i>파고</span>
+      <span><i style="background:#4ea1ff"></i>강수 mm</span>
+    </div>
+    <a id="callink" href="calendar.html" style="color:var(--wind);font-weight:800;text-decoration:none">📅 출조 달력 →</a>
+    <div class="zoom">
+      <button data-z="3">16일</button><button data-z="6" class="on">넓게</button><button data-z="12">자세히</button>
+    </div>
+  </div>
+</header>
+<div id="panels"></div>
+<div class="hint" id="hint">
+  가로로 밀어서 이동(두 그래프 같이 움직임) · 점을 누르면 시각별 값 · 배경 띠는 낮(05~18시) 최대 풍속 기준 <b>초록 ≤5 · 노랑 ≤8 · 주황 ≤11 · 빨강</b> m/s ·
+  어두운 구간은 밤 · ● 0~3일 출조 판단 / ◐ 4~7일 경향 / ○ 8일+ 참고 · 화살표는 바람이 <b>가는</b> 방향 ·
+  날씨 줄: 막대=시간별 강수량(mm), 점선=강수확률, 날짜 헤더의 파란 글씨=확률 60%↑ 또는 5mm↑ ·
+  주소 뒤에 <b>?locs=이름,위도,경도;이름,위도,경도</b> 를 붙이면 다른 포인트로 바꿀 수 있음
+</div>
+<script>
+const TIDE = {"2026-08-22":"두물","2026-08-23":"세물","2026-08-24":"네물","2026-08-25":"다섯물","2026-08-26":"여섯물","2026-08-27":"일곱물(사리)","2026-08-28":"일곱물(사리)","2026-08-29":"여덟물","2026-08-30":"아홉물(대사리)","2026-08-31":"열물","2026-09-01":"한꺽기","2026-09-02":"두꺽기","2026-09-03":"조금(조금)","2026-09-04":"무시","2026-09-05":"한물","2026-09-06":"두물","2026-09-07":"세물","2026-09-08":"네물","2026-09-09":"다섯물","2026-09-10":"여섯물","2026-09-11":"일곱물(사리)","2026-09-12":"여덟물","2026-09-13":"아홉물(대사리)","2026-09-14":"열물","2026-09-15":"한꺽기","2026-09-16":"두꺽기","2026-09-17":"조금(조금)","2026-09-18":"무시","2026-09-19":"한물","2026-09-20":"두물","2026-09-21":"세물","2026-09-22":"네물","2026-09-23":"다섯물","2026-09-24":"여섯물","2026-09-25":"일곱물(사리)","2026-09-26":"일곱물(사리)","2026-09-27":"여덟물","2026-09-28":"아홉물(대사리)","2026-09-29":"열물","2026-09-30":"한꺽기","2026-10-01":"두꺽기","2026-10-02":"조금(조금)","2026-10-03":"무시","2026-10-04":"한물","2026-10-05":"두물","2026-10-06":"세물","2026-10-07":"네물","2026-10-08":"다섯물","2026-10-09":"여섯물","2026-10-10":"일곱물(사리)","2026-10-11":"일곱물(사리)","2026-10-12":"여덟물","2026-10-13":"아홉물(대사리)","2026-10-14":"열물","2026-10-15":"한꺽기","2026-10-16":"두꺽기","2026-10-17":"조금(조금)","2026-10-18":"무시","2026-10-19":"한물","2026-10-20":"두물","2026-10-21":"세물","2026-10-22":"네물","2026-10-23":"다섯물","2026-10-24":"여섯물","2026-10-25":"일곱물(사리)","2026-10-26":"일곱물(사리)","2026-10-27":"여덟물","2026-10-28":"아홉물(대사리)","2026-10-29":"열물","2026-10-30":"한꺽기","2026-10-31":"두꺽기","2026-11-01":"조금(조금)","2026-11-02":"무시","2026-11-03":"한물","2026-11-04":"두물","2026-11-05":"세물","2026-11-06":"네물","2026-11-07":"다섯물","2026-11-08":"여섯물","2026-11-09":"일곱물(사리)","2026-11-10":"여덟물","2026-11-11":"아홉물(대사리)","2026-11-12":"열물","2026-11-13":"한꺽기","2026-11-14":"두꺽기","2026-11-15":"조금(조금)","2026-11-16":"무시","2026-11-17":"한물","2026-11-18":"두물","2026-11-19":"세물","2026-11-20":"네물","2026-11-21":"다섯물","2026-11-22":"여섯물","2026-11-23":"일곱물(사리)","2026-11-24":"일곱물(사리)","2026-11-25":"여덟물","2026-11-26":"아홉물(대사리)","2026-11-27":"열물","2026-11-28":"한꺽기","2026-11-29":"두꺽기","2026-11-30":"조금(조금)","2026-12-01":"무시","2026-12-02":"한물","2026-12-03":"두물","2026-12-04":"세물","2026-12-05":"네물","2026-12-06":"다섯물","2026-12-07":"여섯물","2026-12-08":"일곱물(사리)","2026-12-09":"일곱물(사리)","2026-12-10":"여덟물","2026-12-11":"아홉물(대사리)","2026-12-12":"열물","2026-12-13":"한꺽기","2026-12-14":"두꺽기","2026-12-15":"조금(조금)","2026-12-16":"무시","2026-12-17":"한물","2026-12-18":"두물","2026-12-19":"세물","2026-12-20":"네물","2026-12-21":"다섯물","2026-12-22":"여섯물","2026-12-23":"일곱물(사리)","2026-12-24":"일곱물(사리)","2026-12-25":"여덟물","2026-12-26":"아홉물(대사리)","2026-12-27":"열물","2026-12-28":"한꺽기","2026-12-29":"두꺽기","2026-12-30":"조금(조금)","2026-12-31":"무시","2027-01-01":"한물","2027-01-02":"두물","2027-01-03":"세물","2027-01-04":"네물","2027-01-05":"다섯물","2027-01-06":"여섯물","2027-01-07":"일곱물(사리)","2027-01-08":"일곱물(사리)","2027-01-09":"여덟물","2027-01-10":"아홉물(대사리)","2027-01-11":"열물","2027-01-12":"한꺽기","2027-01-13":"두꺽기","2027-01-14":"조금(조금)","2027-01-15":"무시","2027-01-16":"한물","2027-01-17":"두물","2027-01-18":"세물","2027-01-19":"네물","2027-01-20":"다섯물","2027-01-21":"여섯물","2027-01-22":"일곱물(사리)","2027-01-23":"일곱물(사리)","2027-01-24":"여덟물","2027-01-25":"아홉물(대사리)","2027-01-26":"열물","2027-01-27":"한꺽기","2027-01-28":"두꺽기","2027-01-29":"조금(조금)","2027-01-30":"무시","2027-01-31":"한물","2027-02-01":"두물","2027-02-02":"세물","2027-02-03":"네물","2027-02-04":"다섯물","2027-02-05":"여섯물","2027-02-06":"일곱물(사리)","2027-02-07":"일곱물(사리)","2027-02-08":"여덟물","2027-02-09":"아홉물(대사리)","2027-02-10":"열물","2027-02-11":"한꺽기","2027-02-12":"두꺽기","2027-02-13":"조금(조금)","2027-02-14":"무시","2027-02-15":"한물","2027-02-16":"두물","2027-02-17":"세물","2027-02-18":"네물","2027-02-19":"다섯물","2027-02-20":"여섯물","2027-02-21":"일곱물(사리)","2027-02-22":"일곱물(사리)","2027-02-23":"여덟물","2027-02-24":"아홉물(대사리)","2027-02-25":"열물","2027-02-26":"한꺽기","2027-02-27":"두꺽기","2027-02-28":"조금(조금)","2027-03-01":"무시","2027-03-02":"한물","2027-03-03":"두물","2027-03-04":"세물","2027-03-05":"네물","2027-03-06":"다섯물","2027-03-07":"여섯물","2027-03-08":"일곱물(사리)","2027-03-09":"여덟물","2027-03-10":"아홉물(대사리)","2027-03-11":"열물","2027-03-12":"한꺽기","2027-03-13":"두꺽기","2027-03-14":"조금(조금)","2027-03-15":"무시","2027-03-16":"한물","2027-03-17":"두물","2027-03-18":"세물","2027-03-19":"네물","2027-03-20":"다섯물","2027-03-21":"여섯물","2027-03-22":"일곱물(사리)","2027-03-23":"일곱물(사리)","2027-03-24":"여덟물","2027-03-25":"아홉물(대사리)","2027-03-26":"열물","2027-03-27":"한꺽기","2027-03-28":"두꺽기","2027-03-29":"조금(조금)","2027-03-30":"무시","2027-03-31":"한물","2027-04-01":"두물","2027-04-02":"세물","2027-04-03":"네물","2027-04-04":"다섯물","2027-04-05":"여섯물","2027-04-06":"일곱물(사리)","2027-04-07":"일곱물(사리)","2027-04-08":"여덟물","2027-04-09":"아홉물(대사리)","2027-04-10":"열물","2027-04-11":"한꺽기","2027-04-12":"두꺽기","2027-04-13":"조금(조금)","2027-04-14":"무시","2027-04-15":"한물","2027-04-16":"두물","2027-04-17":"세물","2027-04-18":"네물","2027-04-19":"다섯물","2027-04-20":"여섯물","2027-04-21":"일곱물(사리)","2027-04-22":"일곱물(사리)","2027-04-23":"여덟물","2027-04-24":"아홉물(대사리)","2027-04-25":"열물","2027-04-26":"한꺽기","2027-04-27":"두꺽기","2027-04-28":"조금(조금)","2027-04-29":"무시","2027-04-30":"한물","2027-05-01":"두물","2027-05-02":"세물","2027-05-03":"네물","2027-05-04":"다섯물","2027-05-05":"여섯물","2027-05-06":"일곱물(사리)","2027-05-07":"여덟물","2027-05-08":"아홉물(대사리)","2027-05-09":"열물","2027-05-10":"한꺽기","2027-05-11":"두꺽기","2027-05-12":"조금(조금)","2027-05-13":"무시","2027-05-14":"한물","2027-05-15":"두물","2027-05-16":"세물","2027-05-17":"네물","2027-05-18":"다섯물","2027-05-19":"여섯물","2027-05-20":"일곱물(사리)","2027-05-21":"일곱물(사리)","2027-05-22":"여덟물","2027-05-23":"아홉물(대사리)","2027-05-24":"열물","2027-05-25":"한꺽기","2027-05-26":"두꺽기","2027-05-27":"조금(조금)","2027-05-28":"무시","2027-05-29":"한물","2027-05-30":"두물","2027-05-31":"세물","2027-06-01":"네물","2027-06-02":"다섯물","2027-06-03":"여섯물","2027-06-04":"일곱물(사리)","2027-06-05":"일곱물(사리)","2027-06-06":"여덟물","2027-06-07":"아홉물(대사리)","2027-06-08":"열물","2027-06-09":"한꺽기","2027-06-10":"두꺽기","2027-06-11":"조금(조금)","2027-06-12":"무시","2027-06-13":"한물","2027-06-14":"두물","2027-06-15":"세물","2027-06-16":"네물","2027-06-17":"다섯물","2027-06-18":"여섯물","2027-06-19":"일곱물(사리)","2027-06-20":"일곱물(사리)","2027-06-21":"여덟물","2027-06-22":"아홉물(대사리)","2027-06-23":"열물","2027-06-24":"한꺽기","2027-06-25":"두꺽기","2027-06-26":"조금(조금)","2027-06-27":"무시","2027-06-28":"한물","2027-06-29":"두물","2027-06-30":"세물","2027-07-01":"네물","2027-07-02":"다섯물","2027-07-03":"여섯물","2027-07-04":"일곱물(사리)","2027-07-05":"여덟물","2027-07-06":"아홉물(대사리)","2027-07-07":"열물","2027-07-08":"한꺽기","2027-07-09":"두꺽기","2027-07-10":"조금(조금)","2027-07-11":"무시","2027-07-12":"한물","2027-07-13":"두물","2027-07-14":"세물","2027-07-15":"네물","2027-07-16":"다섯물","2027-07-17":"여섯물","2027-07-18":"일곱물(사리)","2027-07-19":"일곱물(사리)","2027-07-20":"여덟물","2027-07-21":"아홉물(대사리)","2027-07-22":"열물","2027-07-23":"한꺽기","2027-07-24":"두꺽기","2027-07-25":"조금(조금)","2027-07-26":"무시","2027-07-27":"한물","2027-07-28":"두물","2027-07-29":"세물","2027-07-30":"네물","2027-07-31":"다섯물","2027-08-01":"여섯물","2027-08-02":"일곱물(사리)","2027-08-03":"여덟물","2027-08-04":"아홉물(대사리)","2027-08-05":"열물","2027-08-06":"한꺽기","2027-08-07":"두꺽기","2027-08-08":"조금(조금)","2027-08-09":"무시","2027-08-10":"한물","2027-08-11":"두물","2027-08-12":"세물","2027-08-13":"네물","2027-08-14":"다섯물","2027-08-15":"여섯물","2027-08-16":"일곱물(사리)","2027-08-17":"일곱물(사리)","2027-08-18":"여덟물","2027-08-19":"아홉물(대사리)","2027-08-20":"열물","2027-08-21":"한꺽기","2027-08-22":"두꺽기","2027-08-23":"조금(조금)","2027-08-24":"무시","2027-08-25":"한물","2027-08-26":"두물","2027-08-27":"세물","2027-08-28":"네물","2027-08-29":"다섯물","2027-08-30":"여섯물","2027-08-31":"일곱물(사리)","2027-09-01":"일곱물(사리)","2027-09-02":"여덟물","2027-09-03":"아홉물(대사리)","2027-09-04":"열물","2027-09-05":"한꺽기","2027-09-06":"두꺽기","2027-09-07":"조금(조금)","2027-09-08":"무시","2027-09-09":"한물","2027-09-10":"두물","2027-09-11":"세물","2027-09-12":"네물","2027-09-13":"다섯물","2027-09-14":"여섯물","2027-09-15":"일곱물(사리)","2027-09-16":"일곱물(사리)","2027-09-17":"여덟물","2027-09-18":"아홉물(대사리)","2027-09-19":"열물","2027-09-20":"한꺽기","2027-09-21":"두꺽기","2027-09-22":"조금(조금)","2027-09-23":"무시","2027-09-24":"한물","2027-09-25":"두물","2027-09-26":"세물","2027-09-27":"네물","2027-09-28":"다섯물","2027-09-29":"여섯물","2027-09-30":"일곱물(사리)","2027-10-01":"여덟물","2027-10-02":"아홉물(대사리)","2027-10-03":"열물","2027-10-04":"한꺽기","2027-10-05":"두꺽기","2027-10-06":"조금(조금)","2027-10-07":"무시","2027-10-08":"한물","2027-10-09":"두물","2027-10-10":"세물","2027-10-11":"네물","2027-10-12":"다섯물","2027-10-13":"여섯물","2027-10-14":"일곱물(사리)","2027-10-15":"일곱물(사리)","2027-10-16":"여덟물","2027-10-17":"아홉물(대사리)","2027-10-18":"열물","2027-10-19":"한꺽기","2027-10-20":"두꺽기","2027-10-21":"조금(조금)","2027-10-22":"무시","2027-10-23":"한물","2027-10-24":"두물","2027-10-25":"세물","2027-10-26":"네물","2027-10-27":"다섯물","2027-10-28":"여섯물","2027-10-29":"일곱물(사리)","2027-10-30":"여덟물","2027-10-31":"아홉물(대사리)","2027-11-01":"열물","2027-11-02":"한꺽기","2027-11-03":"두꺽기","2027-11-04":"조금(조금)","2027-11-05":"무시","2027-11-06":"한물","2027-11-07":"두물","2027-11-08":"세물","2027-11-09":"네물","2027-11-10":"다섯물","2027-11-11":"여섯물","2027-11-12":"일곱물(사리)","2027-11-13":"일곱물(사리)","2027-11-14":"여덟물","2027-11-15":"아홉물(대사리)","2027-11-16":"열물","2027-11-17":"한꺽기","2027-11-18":"두꺽기","2027-11-19":"조금(조금)","2027-11-20":"무시","2027-11-21":"한물","2027-11-22":"두물","2027-11-23":"세물","2027-11-24":"네물","2027-11-25":"다섯물","2027-11-26":"여섯물","2027-11-27":"일곱물(사리)","2027-11-28":"일곱물(사리)","2027-11-29":"여덟물","2027-11-30":"아홉물(대사리)","2027-12-01":"열물","2027-12-02":"한꺽기","2027-12-03":"두꺽기","2027-12-04":"조금(조금)","2027-12-05":"무시","2027-12-06":"한물","2027-12-07":"두물","2027-12-08":"세물","2027-12-09":"네물","2027-12-10":"다섯물","2027-12-11":"여섯물","2027-12-12":"일곱물(사리)","2027-12-13":"일곱물(사리)","2027-12-14":"여덟물","2027-12-15":"아홉물(대사리)","2027-12-16":"열물","2027-12-17":"한꺽기","2027-12-18":"두꺽기","2027-12-19":"조금(조금)","2027-12-20":"무시","2027-12-21":"한물","2027-12-22":"두물","2027-12-23":"세물","2027-12-24":"네물","2027-12-25":"다섯물","2027-12-26":"여섯물","2027-12-27":"일곱물(사리)","2027-12-28":"일곱물(사리)","2027-12-29":"여덟물","2027-12-30":"아홉물(대사리)","2027-12-31":"열물","2028-01-01":"한꺽기","2028-01-02":"두꺽기","2028-01-03":"조금(조금)","2028-01-04":"무시","2028-01-05":"한물","2028-01-06":"두물","2028-01-07":"세물","2028-01-08":"네물","2028-01-09":"다섯물","2028-01-10":"여섯물","2028-01-11":"일곱물(사리)","2028-01-12":"일곱물(사리)","2028-01-13":"여덟물","2028-01-14":"아홉물(대사리)","2028-01-15":"열물","2028-01-16":"한꺽기","2028-01-17":"두꺽기","2028-01-18":"조금(조금)","2028-01-19":"무시","2028-01-20":"한물","2028-01-21":"두물","2028-01-22":"세물","2028-01-23":"네물","2028-01-24":"다섯물","2028-01-25":"여섯물","2028-01-26":"일곱물(사리)","2028-01-27":"일곱물(사리)","2028-01-28":"여덟물","2028-01-29":"아홉물(대사리)","2028-01-30":"열물","2028-01-31":"한꺽기","2028-02-01":"두꺽기","2028-02-02":"조금(조금)","2028-02-03":"무시","2028-02-04":"한물","2028-02-05":"두물","2028-02-06":"세물","2028-02-07":"네물","2028-02-08":"다섯물","2028-02-09":"여섯물","2028-02-10":"일곱물(사리)","2028-02-11":"일곱물(사리)","2028-02-12":"여덟물","2028-02-13":"아홉물(대사리)","2028-02-14":"열물","2028-02-15":"한꺽기","2028-02-16":"두꺽기","2028-02-17":"조금(조금)","2028-02-18":"무시","2028-02-19":"한물","2028-02-20":"두물","2028-02-21":"세물","2028-02-22":"네물","2028-02-23":"다섯물","2028-02-24":"여섯물","2028-02-25":"일곱물(사리)","2028-02-26":"여덟물","2028-02-27":"아홉물(대사리)","2028-02-28":"열물","2028-02-29":"한꺽기","2028-03-01":"두꺽기","2028-03-02":"조금(조금)","2028-03-03":"무시","2028-03-04":"한물","2028-03-05":"두물","2028-03-06":"세물","2028-03-07":"네물","2028-03-08":"다섯물","2028-03-09":"여섯물","2028-03-10":"일곱물(사리)","2028-03-11":"일곱물(사리)","2028-03-12":"여덟물","2028-03-13":"아홉물(대사리)","2028-03-14":"열물","2028-03-15":"한꺽기","2028-03-16":"두꺽기","2028-03-17":"조금(조금)","2028-03-18":"무시","2028-03-19":"한물","2028-03-20":"두물","2028-03-21":"세물","2028-03-22":"네물","2028-03-23":"다섯물","2028-03-24":"여섯물","2028-03-25":"일곱물(사리)","2028-03-26":"일곱물(사리)","2028-03-27":"여덟물","2028-03-28":"아홉물(대사리)","2028-03-29":"열물","2028-03-30":"한꺽기","2028-03-31":"두꺽기","2028-04-01":"조금(조금)","2028-04-02":"무시","2028-04-03":"한물","2028-04-04":"두물","2028-04-05":"세물","2028-04-06":"네물","2028-04-07":"다섯물","2028-04-08":"여섯물","2028-04-09":"일곱물(사리)","2028-04-10":"일곱물(사리)","2028-04-11":"여덟물","2028-04-12":"아홉물(대사리)","2028-04-13":"열물","2028-04-14":"한꺽기","2028-04-15":"두꺽기","2028-04-16":"조금(조금)","2028-04-17":"무시","2028-04-18":"한물","2028-04-19":"두물","2028-04-20":"세물","2028-04-21":"네물","2028-04-22":"다섯물","2028-04-23":"여섯물","2028-04-24":"일곱물(사리)","2028-04-25":"일곱물(사리)","2028-04-26":"여덟물","2028-04-27":"아홉물(대사리)","2028-04-28":"열물","2028-04-29":"한꺽기","2028-04-30":"두꺽기","2028-05-01":"조금(조금)","2028-05-02":"무시","2028-05-03":"한물","2028-05-04":"두물","2028-05-05":"세물","2028-05-06":"네물","2028-05-07":"다섯물","2028-05-08":"여섯물","2028-05-09":"일곱물(사리)","2028-05-10":"일곱물(사리)","2028-05-11":"여덟물","2028-05-12":"아홉물(대사리)","2028-05-13":"열물","2028-05-14":"한꺽기","2028-05-15":"두꺽기","2028-05-16":"조금(조금)","2028-05-17":"무시","2028-05-18":"한물","2028-05-19":"두물","2028-05-20":"세물","2028-05-21":"네물","2028-05-22":"다섯물","2028-05-23":"여섯물","2028-05-24":"일곱물(사리)","2028-05-25":"여덟물","2028-05-26":"아홉물(대사리)","2028-05-27":"열물","2028-05-28":"한꺽기","2028-05-29":"두꺽기","2028-05-30":"조금(조금)","2028-05-31":"무시","2028-06-01":"한물","2028-06-02":"두물","2028-06-03":"세물","2028-06-04":"네물","2028-06-05":"다섯물","2028-06-06":"여섯물","2028-06-07":"일곱물(사리)","2028-06-08":"일곱물(사리)","2028-06-09":"여덟물","2028-06-10":"아홉물(대사리)","2028-06-11":"열물","2028-06-12":"한꺽기","2028-06-13":"두꺽기","2028-06-14":"조금(조금)","2028-06-15":"무시","2028-06-16":"한물","2028-06-17":"두물","2028-06-18":"세물","2028-06-19":"네물","2028-06-20":"다섯물","2028-06-21":"여섯물","2028-06-22":"일곱물(사리)","2028-06-23":"일곱물(사리)","2028-06-24":"여덟물","2028-06-25":"아홉물(대사리)","2028-06-26":"열물","2028-06-27":"한꺽기","2028-06-28":"두꺽기","2028-06-29":"조금(조금)","2028-06-30":"무시","2028-07-01":"한물","2028-07-02":"두물","2028-07-03":"세물","2028-07-04":"네물","2028-07-05":"다섯물","2028-07-06":"여섯물","2028-07-07":"일곱물(사리)","2028-07-08":"일곱물(사리)","2028-07-09":"여덟물","2028-07-10":"아홉물(대사리)","2028-07-11":"열물","2028-07-12":"한꺽기","2028-07-13":"두꺽기","2028-07-14":"조금(조금)","2028-07-15":"무시","2028-07-16":"한물","2028-07-17":"두물","2028-07-18":"세물","2028-07-19":"네물","2028-07-20":"다섯물","2028-07-21":"여섯물","2028-07-22":"일곱물(사리)","2028-07-23":"여덟물","2028-07-24":"아홉물(대사리)","2028-07-25":"열물","2028-07-26":"한꺽기","2028-07-27":"두꺽기","2028-07-28":"조금(조금)","2028-07-29":"무시","2028-07-30":"한물","2028-07-31":"두물","2028-08-01":"세물","2028-08-02":"네물","2028-08-03":"다섯물","2028-08-04":"여섯물","2028-08-05":"일곱물(사리)","2028-08-06":"일곱물(사리)","2028-08-07":"여덟물","2028-08-08":"아홉물(대사리)","2028-08-09":"열물","2028-08-10":"한꺽기","2028-08-11":"두꺽기","2028-08-12":"조금(조금)","2028-08-13":"무시","2028-08-14":"한물","2028-08-15":"두물","2028-08-16":"세물","2028-08-17":"네물","2028-08-18":"다섯물","2028-08-19":"여섯물","2028-08-20":"일곱물(사리)","2028-08-21":"여덟물","2028-08-22":"아홉물(대사리)","2028-08-23":"열물","2028-08-24":"한꺽기","2028-08-25":"두꺽기","2028-08-26":"조금(조금)","2028-08-27":"무시","2028-08-28":"한물","2028-08-29":"두물","2028-08-30":"세물","2028-08-31":"네물","2028-09-01":"다섯물","2028-09-02":"여섯물","2028-09-03":"일곱물(사리)","2028-09-04":"일곱물(사리)","2028-09-05":"여덟물","2028-09-06":"아홉물(대사리)","2028-09-07":"열물","2028-09-08":"한꺽기","2028-09-09":"두꺽기","2028-09-10":"조금(조금)","2028-09-11":"무시","2028-09-12":"한물","2028-09-13":"두물","2028-09-14":"세물","2028-09-15":"네물","2028-09-16":"다섯물","2028-09-17":"여섯물","2028-09-18":"일곱물(사리)","2028-09-19":"일곱물(사리)"};   // {"2026-09-19":"한물", ...} 빌드 시 입력
+const Q = new URLSearchParams(location.search);
+const DEFAULT_LOCS = [
+  { name: '거문도', lat: 34.0283, lon: 127.3086 },
+  { name: '금오도', lat: 34.5200, lon: 127.7600 },
+];
+let LOCS = DEFAULT_LOCS;
+if (Q.get('locs')) {
+  LOCS = Q.get('locs').split(';').map(s => { const [name, lat, lon] = s.split(','); return { name, lat: +lat, lon: +lon }; }).filter(l => l.name && isFinite(l.lat) && isFinite(l.lon));
+} else if (Q.get('lat') && Q.get('lon')) {
+  LOCS = [{ name: Q.get('name') || '지점', lat: +Q.get('lat'), lon: +Q.get('lon') }];
+}
+document.querySelector('#title small').textContent = LOCS.map(l => l.name).join(' · ');
+document.getElementById('callink').href = 'calendar.html' + location.search;
+const TH = {good:5, ok:8, caution:11};
+const DAYS = 16;
+let PX_H = 6;                 // px per hour
+const PAD_L = 34, PAD_R = 16, TOP = 58, H_WIND = 190, GAP = 26, H_RAIN = 56, GAP2 = 8, H_WAVE = 110, BOTTOM = 44;
+const WX = c => c==null?'':c===0?'☀️':c<=2?'🌤️':c===3?'☁️':c<=48?'🌫️':c<=57?'🌦️':c<=67?'🌧️':c<=77?'🌨️':c<=82?'🌧️':c<=86?'🌨️':'⛈️';
+const DPR = Math.min(2, window.devicePixelRatio||1);
+
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const ARR = ['↓','↙','←','↖','↑','↗','→','↘'];
+const arrow = d => d==null?'·':ARR[Math.floor(((d+22.5)%360)/45)];
+const KDIR = ['북','북북동','북동','동북동','동','동남동','남동','남남동','남','남남서','남서','서남서','서','서북서','북서','북북서'];
+const kdir = d => d==null?'-':KDIR[Math.floor(((d+11.25)%360)/22.5)];
+const fmtDay = d => `${d.getMonth()+1}/${d.getDate()} ${'일월화수목금토'[d.getDay()]}`;
+const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const bandColor = v => v==null?'transparent': cssVar(v<=TH.good?'--good': v<=TH.ok?'--ok': v<=TH.caution?'--caution':'--bad');
+
+// ---------------------------------------------------------------- 패널 (지점 하나 = 캔버스 하나)
+function makePanel(loc){
+  const root = document.createElement('div'); root.className = 'loc';
+  root.innerHTML = `<div class="bar"><h2>${loc.name}<small>${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}</small></h2><span>지금 <b class="nowv">…</b></span></div>
+    <div class="wrap"><canvas></canvas><div class="tip"></div></div>`;
+  document.getElementById('panels').appendChild(root);
+  const wrap = root.querySelector('.wrap'), cv = root.querySelector('canvas'), ctx = cv.getContext('2d'), tip = root.querySelector('.tip');
+  const P = { loc, root, wrap, cv, D: null };
+
+  P.load = async function(){
+    const base = `latitude=${loc.lat}&longitude=${loc.lon}&timezone=Asia%2FSeoul&forecast_days=${DAYS}`;
+    const [fc, mr] = await Promise.all([
+      fetch(`https://api.open-meteo.com/v1/forecast?${base}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation,precipitation_probability,weather_code,temperature_2m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max&wind_speed_unit=ms`).then(r=>r.json()),
+      fetch(`https://marine-api.open-meteo.com/v1/marine?${base}&hourly=wave_height`).then(r=>r.json()).catch(()=>null),
+    ]);
+    const h = fc.hourly, wv = mr && mr.hourly ? Object.fromEntries(mr.hourly.time.map((t,i)=>[t, mr.hourly.wave_height[i]])) : {};
+    P.D = { t: h.time.map(s=>new Date(s)), ws: h.wind_speed_10m, gust: h.wind_gusts_10m, dir: h.wind_direction_10m, wave: h.time.map(t=>wv[t]??null),
+            rain: h.precipitation, pop: h.precipitation_probability, wx: h.weather_code, temp: h.temperature_2m,
+            daily: Object.fromEntries(fc.daily.time.map((d,i)=>[d,{wx:fc.daily.weather_code[i], tmax:fc.daily.temperature_2m_max[i], tmin:fc.daily.temperature_2m_min[i], rain:fc.daily.precipitation_sum[i], pop:fc.daily.precipitation_probability_max[i]}])) };
+    const D = P.D, now = new Date(); const i = Math.max(0, D.t.findIndex(t=>t>now)-1);
+    root.querySelector('.nowv').textContent = `${D.ws[i]?.toFixed(1)}m/s ${arrow(D.dir[i])}${kdir(D.dir[i])}${D.wave[i]!=null?` · 파고 ${D.wave[i].toFixed(1)}m`:''}`;
+    P.draw();
+  };
+
+  function dayStats(){
+    const D = P.D, out = {};
+    D.t.forEach((t,i)=>{ const k=iso(t); (out[k] ||= {max:null,wmax:null});
+      if(t.getHours()>=5 && t.getHours()<18 && D.ws[i]!=null) out[k].max = Math.max(out[k].max??0, D.ws[i]);
+      if(D.wave[i]!=null) out[k].wmax = Math.max(out[k].wmax??0, D.wave[i]); });
+    return out;
+  }
+
+  P.draw = function(){
+    const D = P.D; if(!D) return;
+    const n = D.t.length, W = PAD_L + n*PX_H + PAD_R, H = TOP + H_WIND + GAP + H_RAIN + GAP2 + H_WAVE + BOTTOM;
+    cv.width = W*DPR; cv.height = H*DPR; cv.style.width = W+'px'; cv.style.height = H+'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,W,H);
+    const x = i => PAD_L + i*PX_H + PX_H/2;
+    const wsMax = Math.max(14, ...D.gust.filter(v=>v!=null), ...D.ws.filter(v=>v!=null)) * 1.05;
+    const wvMax = Math.max(2.0, ...D.wave.filter(v=>v!=null)) * 1.1;
+    const yW = v => TOP + H_WIND - (v/wsMax)*H_WIND;
+    const RAIN_TOP = TOP + H_WIND + GAP, WAVE_TOP = RAIN_TOP + H_RAIN + GAP2;
+    const rainMax = Math.max(3, ...D.rain.filter(v=>v!=null)) * 1.1;
+    const yR = v => RAIN_TOP + H_RAIN - (v/rainMax)*H_RAIN;
+    const yV = v => WAVE_TOP + H_WAVE - (v/wvMax)*H_WAVE;
+    const today = iso(new Date()), stats = dayStats();
+
+    // 일 단위 배경 띠 + 헤더 + 경계선
+    let dayStart = 0;
+    for(let i=0;i<=n;i++){
+      if(i===n || (i>0 && D.t[i].getDate()!==D.t[i-1].getDate())){
+        const d = D.t[dayStart], k = iso(d), x0 = PAD_L + dayStart*PX_H, x1 = PAD_L + i*PX_H;
+        const off = Math.round((new Date(k) - new Date(today))/864e5);
+        ctx.fillStyle = bandColor(stats[k]?.max); ctx.fillRect(x0, TOP, x1-x0, H_WIND);
+        ctx.fillStyle = 'rgba(78,161,255,.08)'; ctx.fillRect(x0, RAIN_TOP, x1-x0, H_RAIN);
+        ctx.fillStyle = 'rgba(120,80,255,.10)'; ctx.fillRect(x0, WAVE_TOP, x1-x0, H_WAVE);
+        ctx.save(); ctx.beginPath(); ctx.rect(x0, 0, x1-x0-2, TOP); ctx.clip();
+        ctx.textAlign='left'; ctx.textBaseline='top';
+        ctx.fillStyle = d.getDay()===0?'#ff8a8a': d.getDay()===6?'#8ab4ff':cssVar('--text');
+        ctx.font = '800 13px Pretendard, sans-serif'; ctx.fillText(fmtDay(d), x0+6, 8);
+        const dw = D.daily[k]; if(dw){ ctx.font='700 12px Pretendard, sans-serif'; ctx.fillStyle = (dw.pop>=60||dw.rain>=5)?'#7cc4ff':cssVar('--text'); ctx.fillText(`${WX(dw.wx)} ${Math.round(dw.tmin)}~${Math.round(dw.tmax)}°`, x0+6+ctx.measureText(fmtDay(d)).width+10, 8); ctx.font='800 13px Pretendard, sans-serif'; }
+        ctx.fillStyle = cssVar('--muted'); ctx.font = '600 11px Pretendard, sans-serif';
+        const tier = off<=3?'●':off<=7?'◐':'○';
+        ctx.fillText(`${tier} ${TIDE[k]||''}${stats[k]?.max!=null?` · 낮 ${stats[k].max.toFixed(0)}m/s`:''}`, x0+6, 26);
+        const dw2 = D.daily[k]; if(dw2 && (dw2.pop>=30 || dw2.rain>=1)){ ctx.fillStyle='#7cc4ff'; ctx.font='700 11px Pretendard, sans-serif'; ctx.fillText(`☂ ${dw2.pop??'-'}%${dw2.rain>=1?` · ${dw2.rain.toFixed(0)}mm`:''}`, x0+6, 41); }
+        ctx.restore();
+        ctx.strokeStyle = cssVar('--line'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x1+.5, 4); ctx.lineTo(x1+.5, H-BOTTOM); ctx.stroke();
+        dayStart = i;
+      }
+    }
+    for(let i=0;i<n;i++){ const hh = D.t[i].getHours(); if(hh>=18||hh<5){ ctx.fillStyle = cssVar('--night'); ctx.fillRect(PAD_L+i*PX_H, TOP, PX_H, H_WIND+GAP+H_RAIN+GAP2+H_WAVE); } }
+
+    // 비 뿌리기: 강수 시간대에 풍속 영역 위로 파란 빗줄기 (강수량 클수록 짙고 빽빽)
+    for(let i=0;i<n;i++){ const r=D.rain[i]; if(r==null || r<=0.05) continue;
+      const cx0 = PAD_L+i*PX_H, a = Math.min(0.42, 0.10 + r*0.07);
+      ctx.fillStyle = `rgba(78,161,255,${a})`; ctx.fillRect(cx0, TOP, PX_H, H_WIND);
+      const streaks = Math.min(12, Math.ceil(r*1.5)+1); ctx.strokeStyle = `rgba(160,210,255,${Math.min(0.9, 0.35 + r*0.1)})`; ctx.lineWidth = 1;
+      for(let sIdx=0; sIdx<streaks; sIdx++){ const seed = (i*7919 + sIdx*104729) % 1000 / 1000; const sx = cx0 + seed*PX_H, sy = TOP + ((seed*13 + sIdx*0.37) % 1) * H_WIND; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx-3, sy+10); ctx.stroke(); }
+    }
+    // 눈금
+    ctx.strokeStyle = 'rgba(255,255,255,.06)'; ctx.fillStyle = cssVar('--muted'); ctx.font='600 10px Pretendard, sans-serif'; ctx.textAlign='right'; ctx.textBaseline='middle';
+    for(let v=0; v<=wsMax; v+=5){ const y=yW(v); ctx.beginPath(); ctx.moveTo(PAD_L,y); ctx.lineTo(PAD_L+n*PX_H,y); ctx.stroke(); ctx.fillText(v, PAD_L-5, y); }
+    for(let v=0; v<=wvMax; v+=0.5){ const y=yV(v); ctx.beginPath(); ctx.moveTo(PAD_L,y); ctx.lineTo(PAD_L+n*PX_H,y); ctx.stroke(); ctx.fillText(v.toFixed(1), PAD_L-5, y); }
+    // 강수: 막대(mm) + 확률(연한 선) + 시간별 날씨 아이콘(6h)
+    ctx.fillStyle=cssVar('--muted'); ctx.textAlign='right'; ctx.textBaseline='middle'; ctx.fillText('mm', PAD_L-5, RAIN_TOP+6); ctx.fillText('0', PAD_L-5, yR(0));
+    for(let i=0;i<n;i++){ const r=D.rain[i]; if(r!=null && r>0){ ctx.fillStyle='#4ea1ff'; ctx.fillRect(PAD_L+i*PX_H+0.5, yR(r), Math.max(1,PX_H-1), yR(0)-yR(r)); } }
+    ctx.beginPath(); let ps=false; for(let i=0;i<n;i++){ const p=D.pop[i]; if(p==null){ps=false;continue;} const px=x(i), py=RAIN_TOP + H_RAIN - (p/100)*H_RAIN; if(!ps){ctx.moveTo(px,py);ps=true;} else ctx.lineTo(px,py); } ctx.strokeStyle='rgba(124,196,255,.55)'; ctx.lineWidth=1.2; ctx.setLineDash([2,3]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.font='12px Pretendard, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+    for(let i=0;i<n;i++){ const hh=D.t[i].getHours(); if((hh===9||hh===15) && PX_H>=4){ ctx.fillText(WX(D.wx[i]), x(i), RAIN_TOP+2); } }
+    [[TH.good,'#2ecc71'],[TH.ok,'#f1c40f'],[TH.caution,'#e67e22']].forEach(([v,c])=>{ ctx.strokeStyle=c; ctx.setLineDash([3,5]); ctx.globalAlpha=.55; ctx.beginPath(); ctx.moveTo(PAD_L,yW(v)); ctx.lineTo(PAD_L+n*PX_H,yW(v)); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]); });
+    ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle=cssVar('--muted');
+    for(let i=0;i<n;i++){ const hh=D.t[i].getHours(); if(hh%6===0 && PX_H>=3){ ctx.fillText(String(hh).padStart(2,'0'), x(i), H-BOTTOM+4); } }
+
+    // 실선
+    const line = (arr, yf, color, width, dash, fill) => {
+      const trace = () => { ctx.beginPath(); let started=false; arr.forEach((v,i)=>{ if(v==null){started=false;return;} const px=x(i), py=yf(v); if(!started){ctx.moveTo(px,py);started=true;} else ctx.lineTo(px,py); }); };
+      if(fill){ trace(); ctx.lineTo(x(n-1), yf(0)); ctx.lineTo(x(0), yf(0)); ctx.closePath(); ctx.fillStyle=fill; ctx.fill(); }
+      trace(); ctx.strokeStyle=color; ctx.lineWidth=width; ctx.setLineDash(dash||[]); ctx.lineJoin='round'; ctx.stroke(); ctx.setLineDash([]);
+    };
+    line(D.ws, yW, cssVar('--wind'), 2.5, null, 'rgba(94,200,255,.15)');
+    line(D.gust, yW, cssVar('--gust'), 1.2, [4,4]);
+    line(D.wave, yV, cssVar('--wave'), 2.2, null, 'rgba(199,146,255,.14)');
+
+    // 풍향 화살표 (3시간)
+    ctx.fillStyle = cssVar('--text'); ctx.font='700 12px Pretendard, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    for(let i=0;i<n;i++){ if(D.t[i].getHours()%3===0 && PX_H>=4){ ctx.fillText(arrow(D.dir[i]), x(i), TOP+H_WIND+GAP/2); } }
+
+    // 지금
+    const now = new Date(), ni = D.t.findIndex(t=>t>now)-1;
+    if(ni>=0){ const px = x(ni) + (now-D.t[ni])/36e5*PX_H; ctx.strokeStyle=cssVar('--now'); ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(px,TOP-6); ctx.lineTo(px,H-BOTTOM); ctx.stroke();
+      ctx.fillStyle=cssVar('--now'); ctx.font='800 11px Pretendard, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillText('지금', px, TOP-6); }
+  };
+
+  P.scrollToNow = function(){ const D = P.D; if(!D) return; const now=new Date(), ni=D.t.findIndex(t=>t>now)-1; if(ni>=0) wrap.scrollLeft = Math.max(0, PAD_L + ni*PX_H - wrap.clientWidth*0.25); };
+
+  // 툴팁
+  function showTip(clientX, clientY){
+    const D = P.D; if(!D) return; const r = cv.getBoundingClientRect(); const i = Math.round((clientX - r.left - PAD_L - PX_H/2)/PX_H);
+    if(i<0||i>=D.t.length){ tip.style.display='none'; return; }
+    const t=D.t[i];
+    tip.innerHTML = `<b>${loc.name} ${fmtDay(t)} ${String(t.getHours()).padStart(2,'0')}시</b> · ${TIDE[iso(t)]||''}<br>풍속 <b>${D.ws[i]?.toFixed(1)}</b> m/s · 돌풍 ${D.gust[i]?.toFixed(1)} · ${arrow(D.dir[i])}${kdir(D.dir[i])}${D.wave[i]!=null?`<br>파고 <b>${D.wave[i].toFixed(1)}</b> m`:''}<br>${WX(D.wx[i])} ${D.temp[i]?.toFixed(0)}°C · 강수 <b>${D.rain[i]?.toFixed(1)??'-'}</b>mm · 확률 ${D.pop[i]??'-'}%`;
+    tip.style.display='block';
+    const wx = clientX - wrap.getBoundingClientRect().left + wrap.scrollLeft;
+    tip.style.left = Math.min(wx+12, wrap.scrollWidth - tip.offsetWidth - 8) + 'px';
+    tip.style.top = Math.max(4, clientY - wrap.getBoundingClientRect().top - 70) + 'px';
+  }
+  cv.addEventListener('mousemove', e=>showTip(e.clientX,e.clientY));
+  cv.addEventListener('mouseleave', ()=>tip.style.display='none');
+  cv.addEventListener('touchstart', e=>showTip(e.touches[0].clientX,e.touches[0].clientY), {passive:true});
+  cv.addEventListener('touchmove', e=>showTip(e.touches[0].clientX,e.touches[0].clientY), {passive:true});
+
+  // 스크롤 동기화 (다른 패널도 같이 이동)
+  let syncing = false;
+  wrap.addEventListener('scroll', ()=>{ if(syncing) return; PANELS.forEach(o=>{ if(o!==P){ o._syncing=true; o.wrap.scrollLeft = wrap.scrollLeft; requestAnimationFrame(()=>o._syncing=false); } }); }, {passive:true});
+  Object.defineProperty(P, '_syncing', { get(){ return syncing; }, set(v){ syncing = v; } });
+  return P;
+}
+
+const PANELS = LOCS.map(makePanel);
+
+async function loadAll(){
+  await Promise.all(PANELS.map(p => p.load()));
+  document.getElementById('updated').textContent = new Date().toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  document.getElementById('nowtide').textContent = TIDE[iso(new Date())] || '-';
+  PANELS.forEach(p=>p.scrollToNow());
+}
+document.querySelectorAll('.zoom button').forEach(b=>b.addEventListener('click',()=>{ PX_H=+b.dataset.z; document.querySelectorAll('.zoom button').forEach(x=>x.classList.toggle('on',x===b)); PANELS.forEach(p=>{ p.draw(); p.scrollToNow(); }); }));
+window.addEventListener('resize', ()=>PANELS.forEach(p=>p.draw()));
+loadAll().catch(e=>{ document.getElementById('hint').innerHTML = `<div class="err">데이터를 불러오지 못했습니다: ${e}</div>`; });
+setInterval(()=>loadAll().catch(()=>{}), 30*60*1000);   // 30분마다 자동 갱신
+</script>
+</body>
+</html>
